@@ -4,12 +4,12 @@
 #define TILT1_PIN 18
 #define TILT2_PIN 35
 #define GAS_PIN 34
-#define WATER_PIN 33  // NEW: Water level sensor connected to GPIO33
+
 
 // Thresholds
 #define DIST_THRESHOLD 100 // cm
 #define GAS_THRESHOLD 1500 // Adjust based on your sensor
-#define WATER_THRESHOLD 1000 // Adjust based on your sensor output
+
 
 void setup() {
   Serial.begin(115200);
@@ -19,7 +19,7 @@ void setup() {
   pinMode(TILT1_PIN, INPUT);
   pinMode(TILT2_PIN, INPUT);
   pinMode(GAS_PIN, INPUT);
-  pinMode(WATER_PIN, INPUT);  // NEW: Set water sensor pin as input
+ 
 }
 
 void loop() {
@@ -39,9 +39,7 @@ void loop() {
   // Gas Sensor
   int gasValue = analogRead(GAS_PIN);
 
-  // Water Level Sensor
-  int waterLevel = analogRead(WATER_PIN);  // NEW
-
+ 
   // Output status
   Serial.print("Distance: ");
   Serial.print(distance);
@@ -51,8 +49,7 @@ void loop() {
   Serial.print(tilt2);
   Serial.print(" | Gas: ");
   Serial.print(gasValue);
-  Serial.print(" | Water: ");  // NEW
-  Serial.println(waterLevel); // NEW
+  
 
   // Detection Conditions
   if ((distance > DIST_THRESHOLD) && (tilt2 == LOW)) {
@@ -71,9 +68,6 @@ void loop() {
     Serial.println("Gas Leak Detected!");
   }
 
-  if (waterLevel > WATER_THRESHOLD) {
-    Serial.println("Water Level High! Possible Flood Detected.");
-  }
 
   delay(1000);
 }
