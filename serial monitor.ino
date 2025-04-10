@@ -8,7 +8,7 @@
 
 // Thresholds
 #define DIST_THRESHOLD 100 // cm
-#define GAS_THRESHOLD 1500 // Adjust based on your sensor
+#define GAS_THRESHOLD 1500 
 
 
 void setup() {
