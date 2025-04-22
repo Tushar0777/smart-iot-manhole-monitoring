@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 Sensor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f9f9f9; }
+    h1 { color: #222; }
+    .sensor { margin: 10px 0; font-size: 18px; }
+    canvas.chart { max-width: 100%; height: 250px; margin-bottom: 30px; }
+    #modelContainer { width: 100%; height: 400px; margin: 30px 0; background: #f0f0f0; border-radius: 12px; }
+    .alert { padding: 10px; margin: 10px 0; background: #ffdddd; border-left: 6px solid red; font-weight: bold; color: #b30000; }
+  </style>
+</head>
+<body>
+  <h1>🚨 ESP32 Manhole Monitoring</h1>
+
+  <div class="sensor"><strong>Ultrasonic Distance:</strong> <span id="distance">--</span> cm</div>
+  <div class="sensor"><strong>Gas Sensor:</strong> <span id="gas">--</span></div>
+  <div class="sensor"><strong>Gyroscope X:</strong> <span id="gyroX">--</span></div>
+  <div class="sensor"><strong>Gyroscope Y:</strong> <span id="gyroY">--</span></div>
+  <div class="sensor"><strong>Gyroscope Z:</strong> <span id="gyroZ">--</span></div>
+
+  <div id="modelContainer"></div>
+
+  <div id="alerts"></div>
+
+  <h2>Live Graphs</h2>
+  <canvas class="chart" id="distanceChart"></canvas>
+  <canvas class="chart" id="gasChart"></canvas>
+  <canvas class="chart" id="tiltChart"></canvas>
+
+  <script>
+    const MAX_POINTS = 20;
+    const distanceEl = document.getElementById('distance');
+    const gasEl = document.getElementById('gas');
+    const gyroXEl = document.getElementById('gyroX');
+    const gyroYEl = document.getElementById('gyroY');
+    const gyroZEl = document.getElementById('gyroZ');
+    const alertsEl = document.getElementById('alerts');
+
+    const labels = Array(MAX_POINTS).fill('');
+
+    const createChart = (ctx, label, color) => {
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [...labels],
+          datasets: [{
+            label: label,
+            data: [],
+            borderColor: color,
+            tension: 0.3,
+            fill: false
+          }]
+        },
+        options: {
+          animation: false,
+          responsive: true,
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    };
+
+    const distanceChart = createChart(document.getElementById('distanceChart'), 'Distance (cm)', 'blue');
+    const gasChart = createChart(document.getElementById('gasChart'), 'Gas Level', 'green');
+    const tiltChart = createChart(document.getElementById('tiltChart'), 'Tilt (Pitch+Roll)', 'red');
+
+    const updateCharts = (chart, value) => {
+      const data = chart.data.datasets[0].data;
+      if (data.length >= MAX_POINTS) data.shift();
+      data.push(value);
+      chart.update();
+    };
+
+    // === 3D Model using Three.js ===
+    let scene, camera, renderer, cube;
+    let lastAccel = [0, 0, 0];
+
+    function init3D() {
+      const container = document.getElementById('modelContainer');
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, container.offsetWidth / container.offsetHeight, 0.1, 1000);
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.offsetWidth, container.offsetHeight);
+      container.appendChild(renderer.domElement);
+
+      const geometry = new THREE.BoxGeometry(2, 1, 0.5);
+      const material = new THREE.MeshNormalMaterial();
+      cube = new THREE.Mesh(geometry, material);
+      scene.add(cube);
+
+      camera.position.z = 5;
+
+      const animate = () => {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+      };
+      animate();
+    }
+
+    function showAlert(msg) {
+      const alert = document.createElement('div');
+      alert.className = 'alert';
+      alert.textContent = msg;
+      alertsEl.innerHTML = ''; // clear previous alert
+      alertsEl.appendChild(alert);
+    }
+
+    function updateCubeRotation(ax, ay, az) {
+      const normalize = Math.sqrt(ax * ax + ay * ay + az * az);
+      const pitch = Math.atan2(ay, az) * 180 / Math.PI;
+      const roll = Math.atan2(-ax, Math.sqrt(ay * ay + az * az)) * 180 / Math.PI;
+
+      cube.rotation.x = pitch * Math.PI / 180;
+      cube.rotation.y = roll * Math.PI / 180;
+
+      updateCharts(tiltChart, Math.abs(pitch) + Math.abs(roll));
+
+      // Threshold check
+      if (Math.abs(pitch) > 30 || Math.abs(roll) > 30) {
+        showAlert("🚨 Tilt Detected");
+      }
+    }
+
+    function fetchData() {
+      fetch('http://192.168.3.60/data')
+        .then(res => res.json())
+        .then(data => {
+          const { distance, gas, accel = [], gyro = [] } = data;
+
+          distanceEl.textContent = distance;
+          gasEl.textContent = gas;
+          gyroXEl.textContent = gyro[0]?.toFixed(2) ?? '--';
+          gyroYEl.textContent = gyro[1]?.toFixed(2) ?? '--';
+          gyroZEl.textContent = gyro[2]?.toFixed(2) ?? '--';
+
+          updateCharts(distanceChart, distance);
+          updateCharts(gasChart, gas);
+
+          if (gas > 400) showAlert("🚨 Gas Detected");
+          if (distance < 10) showAlert("🚨 Water Level Rising");
+
+          if (accel.length === 3) {
+            const [ax, ay, az] = accel.map(val => val / 16384); // Normalize
+
+            // Acceleration change check (for theft/movement detection)
+            const delta = Math.sqrt(
+              Math.pow(ax - lastAccel[0], 2) +
+              Math.pow(ay - lastAccel[1], 2) +
+              Math.pow(az - lastAccel[2], 2)
+            );
+            if (delta > 0.5) {
+              showAlert("🚨 Acceleration Detected");
+            }
+            lastAccel = [ax, ay, az];
+
+            updateCubeRotation(ax, ay, az);
+          }
+        })
+        .catch(err => console.error('Error fetching data:', err));
+    }
+
+    init3D();
+    setInterval(fetchData, 2000);
+  </script>
+</body>
+</html>
